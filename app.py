@@ -11,9 +11,7 @@ import json
 
 app = Flask(__name__)
 
-def extract_match_dict(match_url):
-    try:
-        @st.cache_data
+
 def extract_match_dict(match_url, save_json=True, match_id=None):
     driver = None
     try:
