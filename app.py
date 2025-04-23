@@ -6,6 +6,9 @@ from bs4 import BeautifulSoup
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 import time
+import boto3
+import plotly.express as px
+from streamlit_autorefresh import st_autorefresh
 
 # إعداد واجهة المستخدم
 st.set_page_config(layout="wide")
@@ -28,18 +31,38 @@ h1 {
 </style>
 """, unsafe_allow_html=True)
 
-# استخراج البيانات باستخدام Selenium
+# إعداد Kinesis
+kinesis_client = boto3.client('kinesis', region_name='us-east-1')
+
+def send_to_kinesis(data, stream_name='match-stats-stream'):
+    response = kinesis_client.put_record(
+        StreamName=stream_name,
+        Data=json.dumps(data),
+        PartitionKey='match-1809770'
+    )
+    return response
+
+def read_from_kinesis(stream_name='match-stats-stream'):
+    shard_iterator = kinesis_client.get_shard_iterator(
+        StreamName=stream_name,
+        ShardId='shardId-000000000000',  # استبدل بـ Shard ID الفعلي
+        ShardIteratorType='TRIM_HORIZON'
+    )['ShardIterator']
+    response = kinesis_client.get_records(ShardIterator=shard_iterator, Limit=10)
+    return response['Records']
+
+# استخراج البيانات
+@st.cache_data
 def extract_match_dict(match_url):
     options = Options()
-    options.add_argument("--headless")  # تشغيل المتصفح في الوضع المخفي
+    options.add_argument("--headless")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
     driver = webdriver.Chrome(options=options)
     
     try:
         driver.get(match_url)
-        time.sleep(3)  # الانتظار لتحميل الصفحة بالكامل
-        
+        time.sleep(3)
         soup = BeautifulSoup(driver.page_source, "html.parser")
         scripts = soup.find_all("script")
         
@@ -56,7 +79,6 @@ def extract_match_dict(match_url):
     finally:
         driver.quit()
 
-# تحويل البيانات إلى DataFrame
 def extract_data_from_dict(data):
     events_dict = data["events"]
     teams_dict = {
@@ -85,11 +107,33 @@ if st.button("ابدأ التحليل"):
             events_dict, players_df, teams_dict = extract_data_from_dict(json_data)
 
             st.subheader("📊 الأحداث")
-            st.dataframe(pd.DataFrame(events_dict).head(50), hide_index=True)
+            events_df = pd.DataFrame(events_dict)
+            st.dataframe(events_df.head(50), hide_index=True)
+
+            if "Goal" in events_df["type"].values:
+                st.balloons()
+                st.success("⚽ هدف جديد!")
+
+            st.subheader("📈 تصور الأحداث")
+            if not events_df.empty:
+                fig = px.scatter(events_df, x="minute", y="type", color="teamId", title="أحداث المباراة حسب الدقيقة")
+                st.plotly_chart(fig)
 
             st.subheader("👥 اللاعبين")
             st.dataframe(players_df[["playerId", "name", "shirtNo", "position", "teamId"]])
 
+            if st.button("إرسال البيانات إلى Kinesis"):
+                send_to_kinesis(events_df.to_dict())
+                st.success("✅ تم إرسال البيانات إلى Kinesis!")
+
+            if st.button("استرداد البيانات من Kinesis"):
+                records = read_from_kinesis()
+                for record in records:
+                    st.write(json.loads(record['Data']))
+
             st.success("✅ تم التحليل بنجاح!")
         except Exception as e:
             st.error(f"❌ حدث خطأ أثناء التحليل: {str(e)}")
+
+# تحديث تلقائي
+st_autorefresh(interval=60000)
