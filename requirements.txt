@@ -9,3 +9,4 @@ plotly
 streamlit-autorefresh
 streamlit-folium
 folium
+flask
