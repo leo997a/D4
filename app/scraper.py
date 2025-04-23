@@ -8,7 +8,7 @@ async def scrape_whoscored(url: str) -> dict:
     async with async_playwright() as p:
         try:
             # تشغيل المتصفح في وضع headless
-            browser = await p.chromium.launch(headless=True)
+            browser = await p.chromium.connect_over_cdp("wss://your-browserless-endpoint")
             page = await browser.new_page()
 
             # الذهاب إلى الرابط
