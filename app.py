@@ -5,6 +5,9 @@ import requests
 from bs4 import BeautifulSoup
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 import time
 import boto3
 import plotly.express as px
@@ -43,13 +46,17 @@ def send_to_kinesis(data, stream_name='match-stats-stream'):
     return response
 
 def read_from_kinesis(stream_name='match-stats-stream'):
-    shard_iterator = kinesis_client.get_shard_iterator(
-        StreamName=stream_name,
-        ShardId='shardId-000000000000',  # استبدل بـ Shard ID الفعلي
-        ShardIteratorType='TRIM_HORIZON'
-    )['ShardIterator']
-    response = kinesis_client.get_records(ShardIterator=shard_iterator, Limit=10)
-    return response['Records']
+    try:
+        shard_iterator = kinesis_client.get_shard_iterator(
+            StreamName=stream_name,
+            ShardId='shardId-000000000000',  # استبدل بـ Shard ID الفعلي
+            ShardIteratorType='TRIM_HORIZON'
+        )['ShardIterator']
+        response = kinesis_client.get_records(ShardIterator=shard_iterator, Limit=10)
+        return response['Records']
+    except Exception as e:
+        st.error(f"خطأ في استرداد البيانات من Kinesis: {str(e)}")
+        return []
 
 # استخراج البيانات
 @st.cache_data
@@ -62,7 +69,12 @@ def extract_match_dict(match_url):
     
     try:
         driver.get(match_url)
-        time.sleep(3)
+        # انتظار تحميل العنصر الذي يحتوي على matchCentreData
+        WebDriverWait(driver, 10).until(
+            EC.presence_of_element_located((By.TAG_NAME, "script"))
+        )
+        time.sleep(5)  # وقت إضافي لضمان التحميل
+        
         soup = BeautifulSoup(driver.page_source, "html.parser")
         scripts = soup.find_all("script")
         
@@ -72,7 +84,8 @@ def extract_match_dict(match_url):
                     raw_json = script.text.split("matchCentreData: ")[1].split(",\n")[0]
                     matchdict = json.loads(raw_json)
                     return matchdict
-                except Exception:
+                except Exception as e:
+                    st.warning(f"خطأ في تحليل السكربت: {str(e)}")
                     continue
         
         raise ValueError("matchCentreData غير موجود في الصفحة.")
@@ -110,18 +123,19 @@ if st.button("ابدأ التحليل"):
             events_df = pd.DataFrame(events_dict)
             st.dataframe(events_df.head(50), hide_index=True)
 
-            if "Goal" in events_df["type"].values:
+            if "Goal" in events_df.get("type", []).values:
                 st.balloons()
                 st.success("⚽ هدف جديد!")
 
             st.subheader("📈 تصور الأحداث")
-            if not events_df.empty:
+            if not events_df.empty and "minute" in events_df and "type" in events_df:
                 fig = px.scatter(events_df, x="minute", y="type", color="teamId", title="أحداث المباراة حسب الدقيقة")
                 st.plotly_chart(fig)
 
             st.subheader("👥 اللاعبين")
             st.dataframe(players_df[["playerId", "name", "shirtNo", "position", "teamId"]])
 
+            # Kinesis
             if st.button("إرسال البيانات إلى Kinesis"):
                 send_to_kinesis(events_df.to_dict())
                 st.success("✅ تم إرسال البيانات إلى Kinesis!")
