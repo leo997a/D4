@@ -30,16 +30,23 @@ def extract_match_dict(match_url):
 
         # انتظار تحميل العنصر الذي يحتوي على matchCentreData
         WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, 'script:-soup-contains("matchCentreData")'))
+            EC.presence_of_element_located((By.TAG_NAME, 'script'))
         )
 
         soup = BeautifulSoup(driver.page_source, 'html.parser')
-        element = soup.select_one('script:-soup-contains("matchCentreData")')
+        scripts = soup.find_all('script')
 
-        if not element:
+        # البحث عن النص الذي يحتوي على matchCentreData
+        match_data_script = None
+        for script in scripts:
+            if 'matchCentreData' in script.text:
+                match_data_script = script
+                break
+
+        if not match_data_script:
             raise ValueError("لم يتم العثور على matchCentreData في الصفحة.")
 
-        raw_json = element.text.split("matchCentreData: ")[1].split(',\n')[0]
+        raw_json = match_data_script.text.split("matchCentreData: ")[1].split(',\n')[0]
         matchdict = json.loads(raw_json)
         return matchdict
     finally:
