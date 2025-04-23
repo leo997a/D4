@@ -1,56 +1,28 @@
 import json
 import pandas as pd
-from bs4 import BeautifulSoup
-from selenium import webdriver
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
 import streamlit as st
-import warnings
+import requests
+from bs4 import BeautifulSoup
 
-warnings.filterwarnings("ignore", category=DeprecationWarning)
-
-# إعداد المتصفح (chromium/chromedriver)
-def init_driver():
-    options = Options()
-    options.add_argument('--headless')
-    options.add_argument('--no-sandbox')
-    options.add_argument('--disable-dev-shm-usage')
-    options.binary_location = "/usr/bin/chromium"
-
-    return webdriver.Chrome(service=Service("/usr/bin/chromedriver"), options=options)
-
-# استخراج البيانات من موقع WhoScored
+# استخراج البيانات من موقع WhoScored بدون Selenium
 def extract_match_dict(match_url):
-    driver = init_driver()
-    try:
-        driver.get(match_url)
+    headers = {
+        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+    }
+    res = requests.get(match_url, headers=headers)
+    soup = BeautifulSoup(res.text, "html.parser")
+    scripts = soup.find_all("script")
 
-        # انتظار تحميل العنصر الذي يحتوي على matchCentreData
-        WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located((By.TAG_NAME, 'script'))
-        )
+    for script in scripts:
+        if "matchCentreData" in script.text:
+            try:
+                raw_json = script.text.split("matchCentreData: ")[1].split(",\n")[0]
+                matchdict = json.loads(raw_json)
+                return matchdict
+            except Exception:
+                continue
 
-        soup = BeautifulSoup(driver.page_source, 'html.parser')
-        scripts = soup.find_all('script')
-
-        # البحث عن النص الذي يحتوي على matchCentreData
-        match_data_script = None
-        for script in scripts:
-            if 'matchCentreData' in script.text:
-                match_data_script = script
-                break
-
-        if not match_data_script:
-            raise ValueError("لم يتم العثور على matchCentreData في الصفحة.")
-
-        raw_json = match_data_script.text.split("matchCentreData: ")[1].split(',\n')[0]
-        matchdict = json.loads(raw_json)
-        return matchdict
-    finally:
-        driver.quit()
+    raise ValueError("matchCentreData غير موجود في الصفحة.")
 
 # تحويل البيانات إلى DataFrame مفيدة
 def extract_data_from_dict(data):
