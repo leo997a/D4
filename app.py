@@ -3,28 +3,60 @@ import pandas as pd
 import streamlit as st
 import requests
 from bs4 import BeautifulSoup
+from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
+import time
 
-# استخراج البيانات من موقع WhoScored بدون Selenium
+# إعداد واجهة المستخدم
+st.set_page_config(layout="wide")
+st.markdown("""
+<style>
+.main {
+    background-color: #1e1e2f;
+    color: #ffffff;
+    font-family: 'Roboto', sans-serif;
+}
+h1 {
+    color: #00ff99;
+    text-align: center;
+}
+.stButton>button {
+    background-color: #ff4b4b;
+    color: white;
+    border-radius: 10px;
+}
+</style>
+""", unsafe_allow_html=True)
+
+# استخراج البيانات باستخدام Selenium
 def extract_match_dict(match_url):
-    headers = {
-        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
-    }
-    res = requests.get(match_url, headers=headers)
-    soup = BeautifulSoup(res.text, "html.parser")
-    scripts = soup.find_all("script")
+    options = Options()
+    options.add_argument("--headless")  # تشغيل المتصفح في الوضع المخفي
+    options.add_argument("--no-sandbox")
+    options.add_argument("--disable-dev-shm-usage")
+    driver = webdriver.Chrome(options=options)
+    
+    try:
+        driver.get(match_url)
+        time.sleep(3)  # الانتظار لتحميل الصفحة بالكامل
+        
+        soup = BeautifulSoup(driver.page_source, "html.parser")
+        scripts = soup.find_all("script")
+        
+        for script in scripts:
+            if "matchCentreData" in script.text:
+                try:
+                    raw_json = script.text.split("matchCentreData: ")[1].split(",\n")[0]
+                    matchdict = json.loads(raw_json)
+                    return matchdict
+                except Exception:
+                    continue
+        
+        raise ValueError("matchCentreData غير موجود في الصفحة.")
+    finally:
+        driver.quit()
 
-    for script in scripts:
-        if "matchCentreData" in script.text:
-            try:
-                raw_json = script.text.split("matchCentreData: ")[1].split(",\n")[0]
-                matchdict = json.loads(raw_json)
-                return matchdict
-            except Exception:
-                continue
-
-    raise ValueError("matchCentreData غير موجود في الصفحة.")
-
-# تحويل البيانات إلى DataFrame مفيدة
+# تحويل البيانات إلى DataFrame
 def extract_data_from_dict(data):
     events_dict = data["events"]
     teams_dict = {
@@ -42,9 +74,7 @@ def extract_data_from_dict(data):
     return events_dict, players_df, teams_dict
 
 # واجهة المستخدم
-st.set_page_config(layout="wide")
-st.title("تحليل مباشر لمباريات WhoScored")
-
+st.title("تحليل مباشر لمباريات WhoScored ⚽")
 default_url = "https://1xbet.whoscored.com/Matches/1809770/Live/Europe-Europa-League-2023-2024-West-Ham-Bayer-Leverkusen"
 match_url = st.text_input("أدخل رابط المباراة:", default_url)
 
