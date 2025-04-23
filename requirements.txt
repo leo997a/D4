@@ -1,4 +1,11 @@
 streamlit
-selenium
 pandas
+requests
 beautifulsoup4
+selenium
+webdriver-manager
+boto3
+plotly
+streamlit-autorefresh
+streamlit-folium
+folium
