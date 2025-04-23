@@ -4,6 +4,9 @@ from bs4 import BeautifulSoup
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 import streamlit as st
 import warnings
 
@@ -24,6 +27,12 @@ def extract_match_dict(match_url):
     driver = init_driver()
     try:
         driver.get(match_url)
+
+        # انتظار تحميل العنصر الذي يحتوي على matchCentreData
+        WebDriverWait(driver, 10).until(
+            EC.presence_of_element_located((By.CSS_SELECTOR, 'script:-soup-contains("matchCentreData")'))
+        )
+
         soup = BeautifulSoup(driver.page_source, 'html.parser')
         element = soup.select_one('script:-soup-contains("matchCentreData")')
 
